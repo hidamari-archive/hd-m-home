@@ -20,6 +20,8 @@
   --routine-bar:linear-gradient(90deg,#C8DDBF,#A8C4A0);
   --discard-done:#D4A9B0;--discard-done-bg:#F6ECEE;
   --discard-bar:linear-gradient(90deg,#E4C5CB,#D4A9B0);
+  --task-done:#7BAFD4;--task-done-bg:#EBF3FA;
+  --task-bar:linear-gradient(90deg,#A8C9E8,#7BAFD4);
   --danger:#C9897A;--danger-bg:#F8EDEA;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -49,12 +51,15 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 .check-item:last-child{border-bottom:none}
 .check-item.done-routine{background:var(--routine-done-bg)}
 .check-item.done-discard{background:var(--discard-done-bg)}
+.check-item.done-task{background:var(--task-done-bg)}
 .check-item[class*="done-"] .check-label{color:var(--text-light);text-decoration:line-through}
 .check-item.done-routine .check-label{text-decoration-color:var(--routine-done)}
 .check-item.done-discard .check-label{text-decoration-color:var(--discard-done)}
+.check-item.done-task .check-label{text-decoration-color:var(--task-done)}
 .checkbox{width:24px;height:24px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;transition:all .2s}
 .checkbox.checked-routine{border-color:var(--routine-done);background:var(--routine-done)}
 .checkbox.checked-discard{border-color:var(--discard-done);background:var(--discard-done)}
+.checkbox.checked-task{border-color:var(--task-done);background:var(--task-done)}
 .checkbox[class*="checked-"]::after{content:'✓';color:#fff;font-size:14px;font-weight:700}
 .check-label{font-size:14px;flex:1;line-height:1.4}
 .item-delete{width:28px;height:28px;border:none;background:none;color:var(--text-faint);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:50%;flex-shrink:0}
@@ -66,6 +71,7 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 .progress-fill{height:100%;border-radius:2px;transition:width .5s ease}
 .progress-fill.routine{background:var(--routine-bar)}
 .progress-fill.discard{background:var(--discard-bar)}
+.progress-fill.task{background:var(--task-bar)}
 .sage-message{background:var(--bg-warm);border-radius:var(--radius);padding:16px 18px;margin-top:20px;font-family:var(--font-accent);font-size:14px;line-height:1.7;color:var(--text);position:relative;min-height:60px}
 .sage-message::before{content:'🕯';position:absolute;top:-10px;left:16px;font-size:16px}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(58,53,48,.3);z-index:200;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px)}
@@ -110,6 +116,7 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:var(--routine-done)"></div>ルーティン</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--discard-done)"></div>1日1捨て</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--task-done)"></div>今日のタスク</div>
     </div>
     <div class="section">
       <div class="section-header">
@@ -118,6 +125,14 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
       </div>
       <div class="progress-bar"><div class="progress-fill routine" id="routineProgress" style="width:0%"></div></div>
       <div class="card" id="routineList"></div>
+    </div>
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">今日のタスク</div>
+        <div class="section-count" id="taskCount"></div>
+      </div>
+      <div class="progress-bar"><div class="progress-fill task" id="taskProgress" style="width:0%"></div></div>
+      <div class="card" id="taskList"></div>
     </div>
     <div class="section">
       <div class="section-header">
@@ -187,6 +202,7 @@ function init(){
   if(!Array.isArray(d.routineChecks)) d.routineChecks=[];
   if(!Array.isArray(d.todayDiscards)) d.todayDiscards=[];
   if(!Array.isArray(d.discardLog)) d.discardLog=[];
+  if(!Array.isArray(d.todayTasks)) d.todayTasks=[];
 
   // Schema version migrations (preserve user data across code updates)
   if((d.schemaVer||1)<2){
@@ -207,6 +223,8 @@ function init(){
     // Clear today's items
     d.routineChecks=[];
     d.todayDiscards=[];
+    // Tasks: carry over unchecked ones, clear done ones
+    d.todayTasks=d.todayTasks.filter(x=>!x.done);
   }
   d.lastDate=t;
 
@@ -252,6 +270,28 @@ function togR(id){
   const i=D.routineChecks.indexOf(id);
   if(i>=0)D.routineChecks.splice(i,1);else D.routineChecks.push(id);
   sv(D);renderRoutines();
+}
+
+// Tasks
+function renderTasks(){
+  const el=document.getElementById('taskList');
+  let h='';
+  D.todayTasks.forEach((x,i)=>{
+    h+=`<div class="check-item ${x.done?'done-task':''}"><div class="checkbox ${x.done?'checked-task':''}" onclick="togT(${i})"></div><div class="check-label">${esc(x.text)}</div><button class="item-delete" onclick="delT(${i})">×</button></div>`;
+  });
+  h+=`<div class="add-item" onclick="openModal('task')"><div class="add-icon">+</div><span>タスクを追加</span></div>`;
+  el.innerHTML=h;
+  const tot=D.todayTasks.length,done=D.todayTasks.filter(x=>x.done).length;
+  document.getElementById('taskCount').textContent=tot?`${done} / ${tot}`:'';
+  document.getElementById('taskProgress').style.width=tot?(done/tot*100)+'%':'0%';
+}
+function togT(i){
+  D.todayTasks[i].done=!D.todayTasks[i].done;
+  sv(D);renderTasks();updateSage();
+}
+function delT(i){
+  D.todayTasks.splice(i,1);
+  sv(D);renderTasks();
 }
 
 // Discards
@@ -354,7 +394,8 @@ const sageM={
 function updateSage(){
   const rT=D.routines.length,rD=D.routineChecks.filter(id=>D.routines.some(r=>r.id===id)).length;
   const dD=D.todayDiscards.filter(x=>x.done).length,dT=D.todayDiscards.length;
-  const aT=rT+dT,aD=rD+dD;
+  const tD=D.todayTasks.filter(x=>x.done).length,tT=D.todayTasks.length;
+  const aT=rT+dT+tT,aD=rD+dD+tD;
   let pool;
   if(aT===0||aD===0)pool=sageM.start;
   else if(aD>=aT)pool=sageM.complete;
@@ -367,7 +408,7 @@ function updateSage(){
 // Modal
 function openModal(type){
   curModal=type;
-  const titles={discard:'今日手放したものをメモ','routine-add':'ルーティンを追加'};
+  const titles={discard:'今日手放したものをメモ','routine-add':'ルーティンを追加',task:'タスクを追加'};
   document.getElementById('modalTitle').textContent=titles[type]||'追加';
   document.getElementById('modalInput').value='';
   document.getElementById('modalOverlay').classList.add('show');
@@ -378,6 +419,7 @@ function submitModal(){
   const text=document.getElementById('modalInput').value.trim();if(!text)return;
   if(curModal==='discard'){D.todayDiscards.push({text,done:true});D.discardLog.push({text,date:gt()});}
   else if(curModal==='routine-add')D.routines.push({id:Date.now(),text});
+  else if(curModal==='task')D.todayTasks.push({text,done:false});
   sv(D);closeModal();renderAll();
 }
 document.getElementById('modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitModal()});
@@ -394,6 +436,7 @@ function delR(i){if(!confirm('「'+D.routines[i].text+'」を削除しますか�
 function resetToday(){
   if(!confirm('今日のチェックをリセットしますか？'))return;
   D.routineChecks=[];
+  D.todayTasks.forEach(x=>x.done=false);
   // Keep discard log, but clear today's input
   D.todayDiscards.filter(x=>x.done).forEach(x=>{
     const idx=findLastIdx(D.discardLog,e=>e.text===x.text&&e.date===gt());
@@ -408,7 +451,7 @@ function resetAll(){
   localStorage.removeItem(SK);D=init();renderAll();
 }
 
-function renderAll(){updateDate();renderRoutines();renderDiscards();renderDiscardLog();renderRS()}
+function renderAll(){updateDate();renderRoutines();renderTasks();renderDiscards();renderDiscardLog();renderRS()}
 renderAll();
 
 // Auto-check for date change while app is open

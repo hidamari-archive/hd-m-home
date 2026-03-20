@@ -182,9 +182,10 @@ function init(){
 
   // Migrate from old format if needed
   if(!d.lastDate) d.lastDate=null;
-  if(!d.routineChecks) d.routineChecks=[];
-  if(!d.todayDiscards) d.todayDiscards=[];
-  if(!d.discardLog) d.discardLog=[];
+  if(!Array.isArray(d.routines)) d.routines=defR.map((r,i)=>({id:Date.now()+i,text:r}));
+  if(!Array.isArray(d.routineChecks)) d.routineChecks=[];
+  if(!Array.isArray(d.todayDiscards)) d.todayDiscards=[];
+  if(!Array.isArray(d.discardLog)) d.discardLog=[];
 
   // === AUTO RESET on new day ===
   if(d.lastDate && d.lastDate !== t){
@@ -204,7 +205,7 @@ function init(){
   sv(d);return d;
 }
 
-let D=init(),curModal=null;
+let D,curModal=null;try{D=init()}catch(e){localStorage.removeItem(SK);D=init()}
 
 function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML}
 

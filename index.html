@@ -169,7 +169,8 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 </div>
 <script>
 const SK='seiiki_v4';
-const defR=['台所リセット','洗濯','お風呂掃除','拭き掃除','モップかけ'];
+const defR=['台所リセット','洗濯','お風呂掃除','拭き掃除','モップかけ','トイレ掃除'];
+const SVER=2;
 
 function ld(){try{const r=localStorage.getItem(SK);if(r)return JSON.parse(r)}catch(e){}return null}
 function sv(d){localStorage.setItem(SK,JSON.stringify(d))}
@@ -186,6 +187,13 @@ function init(){
   if(!Array.isArray(d.routineChecks)) d.routineChecks=[];
   if(!Array.isArray(d.todayDiscards)) d.todayDiscards=[];
   if(!Array.isArray(d.discardLog)) d.discardLog=[];
+
+  // Schema version migrations (preserve user data across code updates)
+  if((d.schemaVer||1)<2){
+    if(!d.routines.some(r=>r.text==='トイレ掃除'))
+      d.routines.push({id:Date.now()+999,text:'トイレ掃除'});
+    d.schemaVer=SVER;
+  }
 
   // === AUTO RESET on new day ===
   if(d.lastDate && d.lastDate !== t){
@@ -205,7 +213,16 @@ function init(){
   sv(d);return d;
 }
 
-let D,curModal=null;try{D=init()}catch(e){localStorage.removeItem(SK);D=init()}
+let D,curModal=null;
+try{D=init()}catch(e){
+  try{
+    const saved=JSON.parse(localStorage.getItem(SK)||'{}');
+    localStorage.removeItem(SK);D=init();
+    if(Array.isArray(saved.discardLog))D.discardLog=saved.discardLog;
+    if(Array.isArray(saved.routines)&&saved.routines.length)D.routines=saved.routines;
+    sv(D);
+  }catch(e2){localStorage.removeItem(SK);D=init()}
+}
 
 function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML}
 
@@ -244,7 +261,7 @@ function renderDiscards(){
   D.todayDiscards.forEach((x,i)=>{
     h+=`<div class="check-item ${x.done?'done-discard':''}"><div class="checkbox ${x.done?'checked-discard':''}" onclick="togD(${i})"></div><div class="check-label">${esc(x.text)}</div><button class="item-delete" onclick="delD(${i})">×</button></div>`;
   });
-  h+=`<div class="add-item" onclick="openModal('discard')"><div class="add-icon">+</div><span>今日手放すもの</span></div>`;
+  h+=`<div class="add-item" onclick="openModal('discard')"><div class="add-icon">+</div><span>手放したものを記録</span></div>`;
   el.innerHTML=h;
   const tot=D.todayDiscards.length,done=D.todayDiscards.filter(x=>x.done).length;
   document.getElementById('discardCount').textContent=tot?`${done} / ${tot}`:'';
@@ -316,7 +333,7 @@ function updateSage(){
 // Modal
 function openModal(type){
   curModal=type;
-  const titles={discard:'今日手放すものをメモ','routine-add':'ルーティンを追加'};
+  const titles={discard:'今日手放したものをメモ','routine-add':'ルーティンを追加'};
   document.getElementById('modalTitle').textContent=titles[type]||'追加';
   document.getElementById('modalInput').value='';
   document.getElementById('modalOverlay').classList.add('show');
@@ -325,7 +342,7 @@ function openModal(type){
 function closeModal(e){if(e&&e.target&&e.target!==document.getElementById('modalOverlay'))return;document.getElementById('modalOverlay').classList.remove('show');curModal=null}
 function submitModal(){
   const text=document.getElementById('modalInput').value.trim();if(!text)return;
-  if(curModal==='discard')D.todayDiscards.push({text,done:false});
+  if(curModal==='discard'){D.todayDiscards.push({text,done:true});D.discardLog.push({text,date:gt()});}
   else if(curModal==='routine-add')D.routines.push({id:Date.now(),text});
   sv(D);closeModal();renderAll();
 }

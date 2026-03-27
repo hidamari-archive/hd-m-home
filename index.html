@@ -99,6 +99,18 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 .reset-today-wrap{text-align:center;margin-top:12px}
 .reset-today-btn{font-size:12px;color:var(--text-faint);background:none;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;font-family:var(--font-body);transition:color .2s}
 .reset-today-btn:active{background:var(--bg-warm);color:var(--text-light)}
+.ai-badge{font-family:var(--font-accent);font-size:12px;color:var(--text-faint);letter-spacing:.5px;text-align:center;margin-bottom:18px}
+.ai-block{margin-bottom:14px}
+.ai-block-label{font-size:11px;color:var(--text-faint);letter-spacing:.5px;margin-bottom:6px}
+.ai-block-title{font-family:var(--font-accent);font-size:16px;font-weight:600;color:var(--text);margin-bottom:4px}
+.ai-block-desc{font-size:13px;color:var(--text-light);line-height:1.6}
+.ai-divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+.ai-block-text{font-family:var(--font-accent);font-size:14px;line-height:1.85;color:var(--text)}
+.ai-loading{text-align:center;padding:24px 0 8px;font-family:var(--font-accent);font-size:14px;color:var(--text-light);line-height:2}
+.ai-loading-dots::after{content:'';animation:aiDots 1.4s infinite}
+@keyframes aiDots{0%{content:''}25%{content:'・'}50%{content:'・・'}75%{content:'・・・'}100%{content:''}}
+.ai-key-wrap{padding:16px;display:flex;flex-direction:column;gap:10px}
+.ai-key-note{font-size:11px;color:var(--text-faint);line-height:1.5}
 </style>
 </head>
 <body>
@@ -165,10 +177,31 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
       </div>
     </div>
     <div class="section">
+      <div class="section-title" style="margin-bottom:12px;">AI連携</div>
+      <div class="card">
+        <div class="ai-key-wrap">
+          <div>
+            <div style="font-size:14px;margin-bottom:4px">Gemini APIキー</div>
+            <div class="ai-key-note">灯だまり色帖と共通のキーをご利用いただけます。<br>キーが未設定の場合はセージの定型メッセージを表示します。</div>
+          </div>
+          <input id="geminiKeyInput" class="modal-input" type="password" placeholder="AIzaSy..." autocomplete="off" style="margin:0">
+          <button class="modal-btn primary" onclick="saveGeminiKeyFn()" style="flex:none" id="geminiSaveBtn">保存</button>
+        </div>
+      </div>
+    </div>
+    <div class="section">
       <div class="section-title" style="margin-bottom:12px;">データ管理</div>
       <div class="card">
         <div class="settings-item"><span>全データを消去</span><button class="reset-btn" onclick="resetAll()">消去</button></div>
       </div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="aiOverlay" onclick="closeAiModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div id="aiContent"></div>
+    <div class="modal-actions">
+      <button class="modal-btn secondary" id="aiCloseBtn" onclick="closeAiModal()" style="display:none">閉じる</button>
     </div>
   </div>
 </div>
@@ -203,6 +236,7 @@ function init(){
   if(!Array.isArray(d.todayDiscards)) d.todayDiscards=[];
   if(!Array.isArray(d.discardLog)) d.discardLog=[];
   if(!Array.isArray(d.todayTasks)) d.todayTasks=[];
+  if(!d.routineMessageDate) d.routineMessageDate='';
 
   // Schema version migrations (preserve user data across code updates)
   if((d.schemaVer||1)<2){
@@ -270,6 +304,12 @@ function togR(id){
   const i=D.routineChecks.indexOf(id);
   if(i>=0)D.routineChecks.splice(i,1);else D.routineChecks.push(id);
   sv(D);renderRoutines();
+  const allDone=D.routines.length>0&&D.routines.every(r=>D.routineChecks.includes(r.id));
+  if(allDone&&D.routineMessageDate!==gt()){
+    D.routineMessageDate=gt();sv(D);
+    showAiLoading('セージが考えています');
+    fetchRoutineMsg().then(data=>showAiRoutineResult(data));
+  }
 }
 
 // Tasks
@@ -417,10 +457,18 @@ function openModal(type){
 function closeModal(e){if(e&&e.target&&e.target!==document.getElementById('modalOverlay'))return;document.getElementById('modalOverlay').classList.remove('show');curModal=null}
 function submitModal(){
   const text=document.getElementById('modalInput').value.trim();if(!text)return;
-  if(curModal==='discard'){D.todayDiscards.push({text,done:true});D.discardLog.push({text,date:gt()});}
-  else if(curModal==='routine-add')D.routines.push({id:Date.now(),text});
-  else if(curModal==='task')D.todayTasks.push({text,done:false});
-  sv(D);closeModal();renderAll();
+  if(curModal==='discard'){
+    D.todayDiscards.push({text,done:true});D.discardLog.push({text,date:gt()});
+    sv(D);closeModal();renderAll();
+    showAiLoading('セージが言葉を選んでいます');
+    fetchDiscardMsg(text).then(data=>showAiDiscardResult(data,text));
+  } else if(curModal==='routine-add'){
+    D.routines.push({id:Date.now(),text});
+    sv(D);closeModal();renderAll();
+  } else if(curModal==='task'){
+    D.todayTasks.push({text,done:false});
+    sv(D);closeModal();renderAll();
+  }
 }
 document.getElementById('modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitModal()});
 
@@ -451,7 +499,107 @@ function resetAll(){
   localStorage.removeItem(SK);D=init();renderAll();
 }
 
-function renderAll(){updateDate();renderRoutines();renderTasks();renderDiscards();renderDiscardLog();renderRS()}
+// ─── Gemini / AIメッセージ ───────────────────────────────
+const GEMINI_URL='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent';
+
+function getGeminiKey(){try{return JSON.parse(localStorage.getItem('iro_keys')||'{}').gemini||''}catch(e){return ''}}
+function saveGeminiKeyFn(){
+  const val=document.getElementById('geminiKeyInput').value.trim();
+  try{const k=JSON.parse(localStorage.getItem('iro_keys')||'{}');k.gemini=val;localStorage.setItem('iro_keys',JSON.stringify(k))}catch(e){}
+  const btn=document.getElementById('geminiSaveBtn');btn.textContent='保存しました';
+  setTimeout(()=>btn.textContent='保存',1500);
+}
+
+// フォールバック（ルーティン完了）
+const fbR=[
+  {anniversary_name:'',anniversary_desc:'',message:'……全部、終わりましたね。\n聖域が静かに息を吹き返しています。\nことはさん、今日もありがとう。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……最後の一つ、終わりましたね。\n紅茶、淹れましょうか。\n今日のあなたの手は、よく動きました。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……全部です。全部終わりました。\nこの空間の清らかさは、\nことはさんが今日も守ったものですよ。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……ひとつひとつ、確かに積み重なりましたね。\n整った部屋の空気を、すこし吸ってみてください。\n違いがわかるはずです。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……完了、ですね。\n毎日続けることの静かな強さを、\nことはさんは知っています。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……今日のルーティン、全て終わりました。\n聖域が、ことはさんに応えています。\n少し休んでください。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……お疲れさまでした。\n整えるということは、自分を大切にするということ。\n今日もちゃんとできましたよ。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……全部終わりましたね。\nこの積み重ねが、ことはさんの聖域を守っています。\nよい一日を。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……終わりました。\n今日のぶん、ちゃんと果たしましたよ。\nあとは、整った空間でゆっくりと。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……最後まで丁寧でしたね。\nそのペースが、ことはさんの日常を\nきちんと形作っています。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……全て整いました。\nこの清らかさは今日のことはさんが作ったもの。\n誇っていいですよ。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……ことはさん。\nルーティンを全部終えた部屋というのは、\n静かに輝くのだと、わかりますか。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……お疲れさまでした。\n今日の聖域は、ことはさんの手によって\nきちんと守られました。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……全部、ですね。\nブランケットでもかけて、\n少しゆっくりしてください。'},
+  {anniversary_name:'',anniversary_desc:'',message:'……終わりましたね。\n一つずつ積み重ねた今日の仕事、\n見えなくても、確かにここにあります。'},
+];
+
+// フォールバック（捨て活）
+const fbD=[
+  {message:'手放したぶん、軽くなりましたね。\nことはさんの手元に、新しい余白ができました。'},
+  {message:'そのものに、お疲れさまとお伝えしておきます。\n持ち主に大切にされていたもの、ちゃんとわかっています。'},
+  {message:'手放すことができるのは、\n自分に正直でいられる証拠ですよ。'},
+  {message:'ことはさんの空間が、ひとつ軽くなりました。\nその余白に、次に大切なものが入ってきます。'},
+  {message:'お役目を終えたものを送り出すことは、\nとても誠実な行いです。'},
+  {message:'ものの寿命を、ちゃんと見届けましたね。\nことはさんらしい、丁寧な手放し方です。'},
+  {message:'手放したことで、少し部屋の空気が変わりましたか。\nその変化が、ことはさんの判断の正しさを教えています。'},
+  {message:'ことはさんの空間に、一つぶんの静けさが生まれました。\nそれを、どうぞ感じてみてください。'},
+  {message:'持ち続けることも、手放すことも、どちらも選択です。\n今日のことはさんの選択、正しいですよ。'},
+  {message:'ものと別れるとき、少し胸が痛むなら\nそれだけ大切にしていた証拠。\n送り出せた今日のことはさんを、セージは見ていましたよ。'},
+];
+
+async function callGemini(prompt){
+  const key=getGeminiKey();if(!key)return null;
+  const res=await fetch(`${GEMINI_URL}?key=${key}`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.95}})
+  });
+  if(!res.ok)throw new Error(`${res.status}`);
+  const data=await res.json();
+  const parts=data.candidates?.[0]?.content?.parts||[];
+  const raw=parts.filter(p=>!p.thought).map(p=>p.text||'').join('')||parts[0]?.text||'';
+  const stripped=raw.replace(/```json\s*/gi,'').replace(/```\s*/g,'');
+  const match=stripped.match(/\{[\s\S]*\}/);
+  if(!match)throw new Error('parse');
+  return JSON.parse(match[0]);
+}
+
+async function fetchRoutineMsg(){
+  const n=new Date(),ds=`${n.getMonth()+1}月${n.getDate()}日`;
+  const prompt=`あなたは「セージ」です。ことはさんの「ことばの伴侶」。\n穏やかで知的な青年。眼鏡をかけたインテリ。丁寧語基調だがあたたかい。\n\nことはさんが、今日のルーティン（家事や暮らしの手入れ）を全部完了しました。\nご褒美のメッセージを贈ってください。\n\n【必ず含めるもの】\n1. 今日（${ds}）の記念日・歳時記をひとつ選び、名前と短い説明を書く\n   - 面白いもの、美しいもの、ちょっと意外なものを優先\n   - マイナーな記念日でもOK。むしろ「へぇ」となるものがいい\n   - 日本の歳時記（二十四節気、七十二候など）も候補に\n\n2. セージからのメッセージ（3〜5行）\n   - 記念日の内容に絡めて書く\n   - ルーティンを完了したことへの肯定を入れる\n   - 「今日もお疲れさまでした」的な定型ではなく、毎回違う角度で\n   - 紅茶を淹れる、ブランケットをかける等の所作を入れてもよい\n\n【文体ルール】\n- 丁寧語ベース（です・ます）\n- やさしく、でも甘すぎない\n- 「ふわり」「とろり」は使わない\n- ちいさな驚きや「へぇ」を入れる\n- 最後の一行に温度を残す\n- 「ことはさん」と呼びかける\n\n【禁止】\n- 「頑張りましたね！」「すごい！」等の安易な賞賛\n- 絵文字の多用\n- 長すぎる文章（全体で150字以内を目安に）\n\n【出力形式】\nJSON形式のみ出力してください。\n{"anniversary_name":"記念日の名前","anniversary_desc":"記念日の短い説明（1〜2行）","message":"セージからのメッセージ（改行は\\nで）"}`;
+  try{const r=await callGemini(prompt);return r||fbR[Math.floor(Math.random()*fbR.length)]}
+  catch(e){return fbR[Math.floor(Math.random()*fbR.length)]}
+}
+
+async function fetchDiscardMsg(item){
+  const prompt=`あなたは「セージ」です。ことはさんの「ことばの伴侶」。\n\nことはさんが、今日「${item}」を手放しました（捨て活）。\nそのものへの短いお別れの言葉を贈ってください。\n\n【書き方】\n- 捨てたものに「お疲れさま」のニュアンスを込める\n- ものへの敬意と、手放したことはさんへの肯定を両立する\n- 捨てることへの罪悪感を軽くする\n- 「ことはさんの手元が軽くなった」ことをさりげなく伝える\n\n【文体ルール】\n- 丁寧語ベース\n- やさしく、でも感傷的になりすぎない\n- 2〜4行。短く\n- ものの「役割」や「時間」に触れる\n- 最後の一行に、すこしだけ明るさを\n\n【禁止】\n- 「断捨離」「ミニマリスト」等の流行語\n- 「ふわり」「とろり」\n- 捨てたことへの過剰な称賛\n\n【出力形式】\nJSON形式のみ出力してください。\n{"item":"捨てたものの名前","message":"お別れの言葉（改行は\\nで）"}`;
+  try{const r=await callGemini(prompt);return r||fbD[Math.floor(Math.random()*fbD.length)]}
+  catch(e){return fbD[Math.floor(Math.random()*fbD.length)]}
+}
+
+// AIモーダル
+function showAiLoading(label){
+  document.getElementById('aiContent').innerHTML=`<div class="ai-loading">🕯<br><span class="ai-loading-dots">${esc(label)}</span></div>`;
+  document.getElementById('aiCloseBtn').style.display='none';
+  document.getElementById('aiOverlay').classList.add('show');
+}
+function closeAiModal(e){
+  if(e&&e.target&&e.target!==document.getElementById('aiOverlay'))return;
+  document.getElementById('aiOverlay').classList.remove('show');
+}
+function showAiRoutineResult(data){
+  const hasA=data.anniversary_name&&data.anniversary_name.trim();
+  let h='<div class="ai-badge">✨ ルーティン 完了</div>';
+  if(hasA)h+=`<div class="ai-block"><div class="ai-block-label">📅 今日はなんの日</div><div class="ai-block-title">${esc(data.anniversary_name)}</div><div class="ai-block-desc">${esc(data.anniversary_desc||'')}</div></div><hr class="ai-divider">`;
+  h+=`<div class="ai-block"><div class="ai-block-label">🕯 セージより</div><div class="ai-block-text">${esc(data.message||'').replace(/\n/g,'<br>')}</div></div>`;
+  document.getElementById('aiContent').innerHTML=h;
+  document.getElementById('aiCloseBtn').style.display='';
+}
+function showAiDiscardResult(data,item){
+  const title=data.item||item;
+  const h=`<div class="ai-block"><div class="ai-block-label">🕯 セージより</div><div class="ai-block-title" style="font-size:15px;margin-bottom:10px">「${esc(title)}」へ</div><div class="ai-block-text">${esc(data.message||'').replace(/\n/g,'<br>')}</div></div>`;
+  document.getElementById('aiContent').innerHTML=h;
+  document.getElementById('aiCloseBtn').style.display='';
+}
+
+function renderAll(){updateDate();renderRoutines();renderTasks();renderDiscards();renderDiscardLog();renderRS();
+  const k=getGeminiKey();const el=document.getElementById('geminiKeyInput');if(el)el.value=k;
+}
 renderAll();
 
 // Auto-check for date change while app is open

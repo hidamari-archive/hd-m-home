@@ -275,6 +275,10 @@ async function loadData(){
     db.from('hk_discard_log').select('*').eq('done', true).order('date',{ascending:false}).order('created_at',{ascending:false}),
     db.from('hk_daily_meta').select('*').eq('date', today).maybeSingle(),
   ]);
+  // エラーログ（診断用）
+  [['routines',routinesRes],['checks',checksRes],['tasks',tasksRes],['discards',discardsRes],['log',logRes],['meta',metaRes]]
+    .forEach(([k,r])=>{ if(r.error) console.error('loadData error ['+k+']:', r.error); });
+  console.log('loadData ok — routines:',routinesRes.data?.length, 'checks:',checksRes.data?.length);
 
   // ルーティンが未登録なら初期データを投入
   let routines = routinesRes.data || [];

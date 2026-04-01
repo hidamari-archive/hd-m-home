@@ -236,7 +236,9 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 // ─── Supabase ────────────────────────────────────────────────
 const SUPABASE_URL = 'https://fypsfmrmxcgydpwkjhlc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_xFRv_2bAv5b8T0XGXQn7uQ_9ZfxrPy2';
-const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession:false, autoRefreshToken:false, detectSessionInUrl:false }
+});
 
 const defR = ['台所リセット','洗濯','お風呂掃除','拭き掃除','モップかけ','トイレ掃除'];
 

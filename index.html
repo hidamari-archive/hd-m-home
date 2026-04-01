@@ -250,6 +250,9 @@ function uuid(){
     const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);
   });
 }
+function dbw(promise, label){
+  promise.then(({error})=>{ if(error) console.error('DB write error ['+label+']:', error); });
+}
 
 // ─── ローカル状態 ─────────────────────────────────────────────
 let D = {
@@ -339,10 +342,10 @@ function togR(id){
   const i=D.routineChecks.indexOf(id);
   if(i>=0){
     D.routineChecks.splice(i,1);
-    db.from('hk_routine_checks').delete().eq('date',gt()).eq('routine_id',id);
+    dbw(db.from('hk_routine_checks').delete().eq('date',gt()).eq('routine_id',id), 'routine_checks.delete');
   }else{
     D.routineChecks.push(id);
-    db.from('hk_routine_checks').insert({date:gt(), routine_id:id});
+    dbw(db.from('hk_routine_checks').insert({date:gt(), routine_id:id}), 'routine_checks.insert');
   }
   renderRoutines();
   const allDone=D.routines.length>0&&D.routines.every(r=>D.routineChecks.includes(r.id));
@@ -350,7 +353,7 @@ function togR(id){
     const rarity=drawRarity();
     D.routineMessageDate=gt();
     D.routineRarity=rarity;
-    db.from('hk_daily_meta').upsert({date:gt(),routine_message_shown:true,routine_rarity:rarity},{onConflict:'date'});
+    dbw(db.from('hk_daily_meta').upsert({date:gt(),routine_message_shown:true,routine_rarity:rarity},{onConflict:'date'}), 'daily_meta.upsert');
     showAiLoading('セージが考えています');
     fetchRoutineMsg(rarity).then(data=>showAiRoutineResult(data,rarity));
   }
@@ -381,13 +384,13 @@ function togT(id){
   const newDoneDate=newDone?gt():null;
   D.todayTasks[idx]={...D.todayTasks[idx],done:newDone,done_date:newDoneDate};
   renderTasks();updateSage();
-  db.from('hk_tasks').update({done:newDone,done_date:newDoneDate}).eq('id',id);
+  dbw(db.from('hk_tasks').update({done:newDone,done_date:newDoneDate}).eq('id',id), 'tasks.update');
 }
 
 function delT(id){
   D.todayTasks=D.todayTasks.filter(x=>x.id!==id);
   renderTasks();
-  db.from('hk_tasks').delete().eq('id',id);
+  dbw(db.from('hk_tasks').delete().eq('id',id), 'tasks.delete');
 }
 
 // ─── 1日1捨て ─────────────────────────────────────────────────
@@ -420,14 +423,14 @@ function togD(id){
     D.discardLog=D.discardLog.filter(e=>e.id!==id);
   }
   renderDiscards();renderDiscardLog();updateSage();
-  db.from('hk_discard_log').update({done:newDone}).eq('id',id);
+  dbw(db.from('hk_discard_log').update({done:newDone}).eq('id',id), 'discard_log.update');
 }
 
 function delD(id){
   D.todayDiscards=D.todayDiscards.filter(x=>x.id!==id);
   D.discardLog=D.discardLog.filter(e=>e.id!==id);
   renderDiscards();renderDiscardLog();
-  db.from('hk_discard_log').delete().eq('id',id);
+  dbw(db.from('hk_discard_log').delete().eq('id',id), 'discard_log.delete');
 }
 
 // ─── 捨て活ログ ───────────────────────────────────────────────
@@ -534,7 +537,7 @@ function submitModal(){
     D.todayDiscards.push(item);
     D.discardLog.unshift(item);
     closeModal();renderAll();
-    db.from('hk_discard_log').insert({id,text,date:today,done:true});
+    dbw(db.from('hk_discard_log').insert({id,text,date:today,done:true}), 'discard_log.insert');
     showAiLoading('セージが言葉を選んでいます');
     fetchDiscardMsg(text).then(data=>showAiDiscardResult(data,text));
   }else if(curModal==='routine-add'){
@@ -542,12 +545,12 @@ function submitModal(){
     const sort_order=D.routines.length;
     D.routines.push({id,text,sort_order,created_at:new Date().toISOString()});
     closeModal();renderAll();
-    db.from('hk_routines').insert({id,text,sort_order});
+    dbw(db.from('hk_routines').insert({id,text,sort_order}), 'routines.insert');
   }else if(curModal==='task'){
     const id=uuid();
     D.todayTasks.push({id,text,done:false,done_date:null,created_at:new Date().toISOString()});
     closeModal();renderAll();
-    db.from('hk_tasks').insert({id,text,done:false});
+    dbw(db.from('hk_tasks').insert({id,text,done:false}), 'tasks.insert');
   }
 }
 document.getElementById('modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitModal()});

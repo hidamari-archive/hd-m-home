@@ -118,6 +118,21 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 .loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999}
 .loading-overlay.hidden{display:none}
 .loading-inner{font-family:var(--font-accent);font-size:15px;color:var(--text-light);text-align:center;line-height:2.2}
+/* 長期タスク */
+.lt-item{display:flex;align-items:center;padding:13px 16px;gap:10px;border-bottom:1px solid var(--border)}
+.lt-item:last-child{border-bottom:none}
+.lt-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px}
+.lt-badge.once{background:#EDF5EB;color:#6A9E62}
+.lt-badge.repeat{background:#EEF0F8;color:#7B82C0}
+.lt-to-today{font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text-light);cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:var(--font-body);transition:all .2s}
+.lt-to-today:active{background:var(--accent-light);border-color:var(--accent)}
+.lt-added{font-size:12px;color:var(--text-faint);white-space:nowrap;flex-shrink:0}
+/* タイプ選択トグル */
+.type-toggle{display:flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;margin-top:10px}
+.type-toggle-btn{flex:1;padding:10px;font-size:13px;font-family:var(--font-body);border:none;background:var(--bg);color:var(--text-light);cursor:pointer;transition:all .2s}
+.type-toggle-btn.active{background:var(--accent);color:#fff}
+/* タブ下線 */
+.tab[data-tab="long"].active::after{background:#7B82C0}
 </style>
 </head>
 <body>
@@ -127,6 +142,7 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 </div>
 <div class="tabs">
   <button class="tab active" data-tab="today">今日</button>
+  <button class="tab" data-tab="long">長期タスク</button>
   <button class="tab" data-tab="discarded">捨て活ログ</button>
   <button class="tab" data-tab="settings">設定</button>
 </div>
@@ -164,6 +180,20 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     <div class="sage-message" id="sageMessage"></div>
     <div class="reset-today-wrap">
       <button class="reset-today-btn" onclick="resetToday()">今日のチェックをリセット</button>
+    </div>
+  </div>
+  <div class="tab-panel" id="tab-long">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">長期タスク</div>
+        <div class="section-count" id="longTaskCount"></div>
+      </div>
+      <div class="card" id="longTaskList"></div>
+      <div style="padding:8px 4px">
+        <div class="add-item" onclick="openModal('long-task-add')" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;">
+          <div class="add-icon">+</div><span>長期タスクを追加</span>
+        </div>
+      </div>
     </div>
   </div>
   <div class="tab-panel" id="tab-discarded">
@@ -220,6 +250,12 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-title" id="modalTitle">追加</div>
     <input class="modal-input" id="modalInput" type="text" placeholder="" autocomplete="off">
+    <div id="modalTypeToggle" style="display:none">
+      <div class="type-toggle">
+        <button class="type-toggle-btn active" id="toggleOnce" onclick="setTaskType('once')">一回限り</button>
+        <button class="type-toggle-btn" id="toggleRepeat" onclick="setTaskType('repeat')">繰り返し</button>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="modal-btn secondary" onclick="closeModal()">やめる</button>
       <button class="modal-btn primary" onclick="submitModal()">追加</button>
@@ -263,27 +299,26 @@ let D = {
   todayTasks:[],      // 未完了 + 今日完了のタスク行
   todayDiscards:[],   // 今日の捨て活行
   discardLog:[],      // 捨て活ログ全件（done=true）
+  longTasks:[],       // hk_long_tasks の全行
   routineMessageDate:'',
   routineRarity:'',
   _loadedDate:'',
 };
 let curModal = null;
+let curTaskType = 'once'; // 長期タスク追加時のタイプ
 
 // ─── データ読み込み ───────────────────────────────────────────
 async function loadData(){
   const today = gt();
-  const [routinesRes, checksRes, tasksRes, discardsRes, logRes, metaRes] = await Promise.all([
+  const [routinesRes, checksRes, tasksRes, discardsRes, logRes, metaRes, longTasksRes] = await Promise.all([
     db.from('hk_routines').select('*').order('sort_order').order('created_at'),
     db.from('hk_routine_checks').select('*').eq('date', today),
     db.from('hk_tasks').select('*').order('created_at'),
     db.from('hk_discard_log').select('*').eq('date', today).order('created_at'),
     db.from('hk_discard_log').select('*').eq('done', true).order('date',{ascending:false}).order('created_at',{ascending:false}),
     db.from('hk_daily_meta').select('*').eq('date', today).maybeSingle(),
+    db.from('hk_long_tasks').select('*').order('created_at'),
   ]);
-  // エラーログ（診断用）
-  [['routines',routinesRes],['checks',checksRes],['tasks',tasksRes],['discards',discardsRes],['log',logRes],['meta',metaRes]]
-    .forEach(([k,r])=>{ if(r.error) console.error('loadData error ['+k+']:', r.error); });
-  console.log('loadData ok — routines:',routinesRes.data?.length, 'checks:',checksRes.data?.length);
 
   // ルーティンが未登録なら初期データを投入
   let routines = routinesRes.data || [];
@@ -299,6 +334,7 @@ async function loadData(){
   D.todayTasks    = (tasksRes.data||[]).filter(t=>!t.done || t.done_date===today);
   D.todayDiscards = discardsRes.data || [];
   D.discardLog    = logRes.data || [];
+  D.longTasks     = longTasksRes.data || [];
   const meta = metaRes.data;
   D.routineMessageDate = meta?.routine_message_shown ? today : '';
   D.routineRarity      = meta?.routine_rarity || '';
@@ -382,9 +418,19 @@ function renderTasks(){
 function togT(id){
   const idx=D.todayTasks.findIndex(x=>x.id===id);
   if(idx<0)return;
-  const newDone=!D.todayTasks[idx].done;
+  const task=D.todayTasks[idx];
+  const newDone=!task.done;
   const newDoneDate=newDone?gt():null;
-  D.todayTasks[idx]={...D.todayTasks[idx],done:newDone,done_date:newDoneDate};
+  D.todayTasks[idx]={...task,done:newDone,done_date:newDoneDate};
+  // 一回限りの長期タスクを完了→長期リストから削除
+  if(newDone&&task.long_task_id){
+    const lt=D.longTasks.find(x=>x.id===task.long_task_id);
+    if(lt&&!lt.is_repeat){
+      D.longTasks=D.longTasks.filter(x=>x.id!==task.long_task_id);
+      dbw(db.from('hk_long_tasks').delete().eq('id',task.long_task_id), 'long_tasks.delete_on_complete');
+      renderLongTasks();
+    }
+  }
   renderTasks();updateSage();
   dbw(db.from('hk_tasks').update({done:newDone,done_date:newDoneDate}).eq('id',id), 'tasks.update');
 }
@@ -518,11 +564,20 @@ function updateSage(){
 // ─── モーダル ─────────────────────────────────────────────────
 function openModal(type){
   curModal=type;
-  const titles={discard:'今日手放したものをメモ','routine-add':'ルーティンを追加',task:'タスクを追加'};
+  const titles={discard:'今日手放したものをメモ','routine-add':'ルーティンを追加',task:'タスクを追加','long-task-add':'長期タスクを追加'};
   document.getElementById('modalTitle').textContent=titles[type]||'追加';
   document.getElementById('modalInput').value='';
+  // タイプ選択トグルは長期タスク追加時のみ表示
+  const showToggle=type==='long-task-add';
+  document.getElementById('modalTypeToggle').style.display=showToggle?'block':'none';
+  if(showToggle){curTaskType='once';setTaskType('once')}
   document.getElementById('modalOverlay').classList.add('show');
   setTimeout(()=>document.getElementById('modalInput').focus(),300);
+}
+function setTaskType(type){
+  curTaskType=type;
+  document.getElementById('toggleOnce').classList.toggle('active',type==='once');
+  document.getElementById('toggleRepeat').classList.toggle('active',type==='repeat');
 }
 function closeModal(e){
   if(e&&e.target&&e.target!==document.getElementById('modalOverlay'))return;
@@ -550,12 +605,68 @@ function submitModal(){
     dbw(db.from('hk_routines').insert({id,text,sort_order}), 'routines.insert');
   }else if(curModal==='task'){
     const id=uuid();
-    D.todayTasks.push({id,text,done:false,done_date:null,created_at:new Date().toISOString()});
+    D.todayTasks.push({id,text,done:false,done_date:null,long_task_id:null,created_at:new Date().toISOString()});
     closeModal();renderAll();
     dbw(db.from('hk_tasks').insert({id,text,done:false}), 'tasks.insert');
+  }else if(curModal==='long-task-add'){
+    const id=uuid();
+    const is_repeat=curTaskType==='repeat';
+    D.longTasks.push({id,text,is_repeat,created_at:new Date().toISOString()});
+    closeModal();renderLongTasks();
+    dbw(db.from('hk_long_tasks').insert({id,text,is_repeat}), 'long_tasks.insert');
   }
 }
 document.getElementById('modalInput').addEventListener('keydown',e=>{if(e.key==='Enter')submitModal()});
+
+// ─── 長期タスク ───────────────────────────────────────────────
+function renderLongTasks(){
+  const el=document.getElementById('longTaskList');
+  if(!el)return;
+  let h='';
+  D.longTasks.forEach(lt=>{
+    const added=D.todayTasks.some(t=>t.long_task_id===lt.id&&!t.done);
+    const badge=lt.is_repeat
+      ?'<span class="lt-badge repeat">繰り返し</span>'
+      :'<span class="lt-badge once">一回限り</span>';
+    const btn=added
+      ?'<span class="lt-added">追加済</span>'
+      :`<button class="lt-to-today" onclick="addToToday('${lt.id}')">今日へ</button>`;
+    h+=`<div class="lt-item">
+      ${badge}
+      <div class="check-label">${esc(lt.text)}</div>
+      ${btn}
+      <button class="item-delete" onclick="delLT('${lt.id}')">×</button>
+    </div>`;
+  });
+  if(!D.longTasks.length){
+    h='<div style="padding:20px;text-align:center;color:var(--text-faint);font-size:14px;">長期タスクがありません</div>';
+  }
+  el.innerHTML=h;
+  const cnt=document.getElementById('longTaskCount');
+  if(cnt)cnt.textContent=D.longTasks.length?`${D.longTasks.length}件`:'';
+}
+
+function addToToday(ltId){
+  const lt=D.longTasks.find(x=>x.id===ltId);
+  if(!lt)return;
+  // すでに今日追加済み（未完了）なら無視
+  if(D.todayTasks.some(t=>t.long_task_id===ltId&&!t.done))return;
+  const id=uuid();
+  const task={id,text:lt.text,done:false,done_date:null,long_task_id:ltId,created_at:new Date().toISOString()};
+  D.todayTasks.push(task);
+  renderTasks();renderLongTasks();
+  dbw(db.from('hk_tasks').insert({id,text:lt.text,done:false,long_task_id:ltId}), 'tasks.insert_from_long');
+}
+
+function delLT(id){
+  const lt=D.longTasks.find(x=>x.id===id);
+  if(!lt||!confirm(`「${lt.text}」を削除しますか？`))return;
+  D.longTasks=D.longTasks.filter(x=>x.id!==id);
+  // 今日のタスクに追加済みなら今日のリストからも外す
+  D.todayTasks=D.todayTasks.filter(t=>t.long_task_id!==id);
+  renderLongTasks();renderTasks();
+  dbw(db.from('hk_long_tasks').delete().eq('id',id), 'long_tasks.delete');
+}
 
 // ─── 設定 ─────────────────────────────────────────────────────
 function renderRS(){
@@ -602,6 +713,7 @@ async function resetAll(){
     db.from('hk_tasks').delete().not('id','is',null),
     db.from('hk_discard_log').delete().not('id','is',null),
     db.from('hk_daily_meta').delete().not('id','is',null),
+    db.from('hk_long_tasks').delete().not('id','is',null),
   ]);
   await loadData();
   renderAll();
@@ -779,7 +891,7 @@ function showAiDiscardResult(data,item){
 
 // ─── 一括レンダー ─────────────────────────────────────────────
 function renderAll(){
-  updateDate();renderRoutines();renderTasks();renderDiscards();renderDiscardLog();renderRS();
+  updateDate();renderRoutines();renderTasks();renderDiscards();renderDiscardLog();renderLongTasks();renderRS();
   const k=getGeminiKey();const el=document.getElementById('geminiKeyInput');if(el)el.value=k;
 }
 
